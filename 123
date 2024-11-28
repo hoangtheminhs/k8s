@@ -1,0 +1,201 @@
+Để cài đặt replication PostgreSQL trên Kubernetes sử dụng StatefulSet, bạn có thể làm theo các bước dưới đây:
+
+
+---
+
+1. Chuẩn bị Cluster Kubernetes
+
+Đảm bảo rằng bạn đã có một cluster Kubernetes hoạt động.
+
+Cài đặt kubectl để quản lý cluster.
+
+
+
+---
+
+2. Tạo Persistent Volume (PV) và Persistent Volume Claim (PVC)
+
+Mỗi pod trong StatefulSet cần một PVC riêng để lưu trữ dữ liệu PostgreSQL.
+
+
+Tệp YAML: postgres-pv.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+Áp dụng:
+
+kubectl apply -f postgres-pv.yaml
+
+
+---
+
+3. Tạo ConfigMap cho Cấu Hình PostgreSQL
+
+ConfigMap lưu các tệp cấu hình như postgresql.conf hoặc pg_hba.conf.
+
+
+Tệp YAML: postgres-config.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+data:
+  postgresql.conf: |
+    wal_level = replica
+    max_wal_senders = 5
+    hot_standby = on
+  pg_hba.conf: |
+    host replication all 0.0.0.0/0 md5
+    host all all 0.0.0.0/0 md5
+
+Áp dụng:
+
+kubectl apply -f postgres-config.yaml
+
+
+---
+
+4. Tạo StatefulSet
+
+StatefulSet đảm bảo mỗi Pod có tên duy nhất và giữ nguyên khi khởi động lại.
+
+
+Tệp YAML: postgres-statefulset.yaml
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: "postgres"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "admin"
+        - name: POSTGRES_PASSWORD
+          value: "password"
+        - name: POSTGRES_DB
+          value: "exampledb"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: config
+          mountPath: /etc/postgresql
+          subPath: postgresql.conf
+      volumes:
+      - name: config
+        configMap:
+          name: postgres-config
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+
+Áp dụng:
+
+kubectl apply -f postgres-statefulset.yaml
+
+
+---
+
+5. Tạo Headless Service
+
+Headless Service cho phép StatefulSet giao tiếp giữa các Pod.
+
+
+Tệp YAML: postgres-service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+Áp dụng:
+
+kubectl apply -f postgres-service.yaml
+
+
+---
+
+6. Cấu hình Replication
+
+1. Primary Pod: Pod đầu tiên (postgres-0) sẽ đóng vai trò Primary.
+
+
+2. Standby Pods: Các Pod còn lại (postgres-1, postgres-2) sẽ tự động kết nối đến Primary nhờ cấu hình trong postgresql.conf.
+
+
+
+Xác nhận replication bằng cách kiểm tra log:
+
+
+kubectl logs postgres-0
+kubectl logs postgres-1
+kubectl logs postgres-2
+
+
+---
+
+7. Kiểm Tra Hoạt Động
+
+Kết nối đến PostgreSQL:
+
+
+kubectl exec -it postgres-0 -- psql -U admin -d exampledb
+
+Kiểm tra trạng thái replication:
+
+
+SELECT * FROM pg_stat_replication;
+
+
+---
+
+8. Tự động Failover (Tùy chọn)
+
+StatefulSet không cung cấp tính năng tự động failover.
+
+Bạn có thể sử dụng công cụ như Patroni hoặc pgpool-II để bổ sung.
+
+
+
+---
+
+Lời Kết
+
+Với cách này, bạn đã triển khai PostgreSQL replication trên Kubernetes sử dụng StatefulSet. Nếu bạn cần thêm hỗ trợ hoặc giải thích, hãy cho tôi biết!
+
