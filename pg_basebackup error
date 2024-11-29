@@ -1,0 +1,282 @@
+Nếu bạn gặp lỗi khi sử dụng pg_basebackup để tạo bản sao cơ sở dữ liệu PostgreSQL, dưới đây là các bước khắc phục lỗi thường gặp:
+
+
+---
+
+1. Kiểm tra Lỗi Cụ Thể
+
+Khi gặp lỗi, hãy kiểm tra thông báo lỗi chi tiết được hiển thị. Ví dụ:
+
+pg_basebackup: could not connect to server: Connection refused
+pg_basebackup: error: could not initiate base backup
+
+Xác định nguyên nhân dựa trên thông báo để dễ dàng khắc phục.
+
+
+
+---
+
+2. Các Nguyên Nhân Thường Gặp và Cách Khắc Phục
+
+2.1. Lỗi Kết Nối (Connection Refused)
+
+Nguyên nhân: PostgreSQL không chạy hoặc không lắng nghe trên địa chỉ được chỉ định.
+
+Cách khắc phục:
+
+1. Đảm bảo PostgreSQL đang chạy trên máy chủ Primary:
+
+systemctl status postgresql
+
+
+2. Kiểm tra tệp cấu hình postgresql.conf:
+
+listen_addresses = '*'
+
+Đảm bảo PostgreSQL lắng nghe trên đúng địa chỉ IP.
+
+
+
+3. Kiểm tra firewall:
+
+sudo ufw allow 5432/tcp
+
+
+
+
+2.2. Lỗi Quyền Truy Cập
+
+Nguyên nhân: Tài khoản sử dụng không có quyền thực hiện backup.
+
+Cách khắc phục:
+
+1. Tạo tài khoản với quyền replication:
+
+CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'password';
+
+
+2. Thêm vào tệp pg_hba.conf trên máy Primary:
+
+host replication replicator 0.0.0.0/0 md5
+
+
+3. Reload PostgreSQL:
+
+systemctl reload postgresql
+
+
+
+
+2.3. Thiếu Cấu Hình wal_level
+
+Nguyên nhân: wal_level không được đặt ở mức phù hợp để hỗ trợ replication.
+
+Cách khắc phục:
+
+1. Sửa tệp postgresql.conf trên máy Primary:
+
+wal_level = replica
+max_wal_senders = 5
+
+
+2. Khởi động lại PostgreSQL:
+
+systemctl restart postgresql
+
+
+
+
+2.4. Không Đủ Không Gian Lưu Trữ
+
+Nguyên nhân: Máy Standby không đủ dung lượng để lưu bản sao.
+
+Cách khắc phục:
+
+1. Kiểm tra không gian lưu trữ trên máy Standby:
+
+df -h
+
+
+2. Giải phóng dung lượng hoặc mở rộng không gian.
+
+
+
+
+2.5. Sai Đường Dẫn Lưu Trữ
+
+Nguyên nhân: Thư mục đích không trống hoặc không thể ghi.
+
+Cách khắc phục:
+
+1. Xóa dữ liệu trong thư mục đích:
+
+rm -rf /var/lib/postgresql/data/*
+
+
+2. Đảm bảo quyền ghi:
+
+chown postgres:postgres /var/lib/postgresql/data
+
+
+
+
+2.6. Phiên Bản PostgreSQL Không Tương Thích
+
+Nguyên nhân: Primary và Standby chạy các phiên bản PostgreSQL khác nhau.
+
+Cách khắc phục:
+
+Đảm bảo cả Primary và Standby sử dụng cùng một phiên bản PostgreSQL.
+
+
+
+
+---
+
+3. Thực hiện Lại pg_basebackup
+
+Sau khi khắc phục lỗi, chạy lại lệnh pg_basebackup:
+
+pg_basebackup -h <primary_host> -U replicator -D /var/lib/postgresql/data -Fp -Xs -P
+
+
+---
+
+4. Kiểm Tra Log
+
+Xem log trên Primary và Standby để kiểm tra lỗi:
+
+tail -f /var/log/postgresql/postgresql-15-main.log
+
+
+
+---
+
+Nếu bạn gặp vấn đề cụ thể, hãy chia sẻ thông báo lỗi để tôi có thể hỗ trợ chi tiết hơn!
+
+Lỗi "no encryption" khi sử dụng pg_basebackup xảy ra khi bạn không sử dụng một phương pháp mã hóa (encryption) nhưng server yêu cầu kết nối phải được mã hóa. Đây thường liên quan đến việc cấu hình SSL giữa client (máy sử dụng pg_basebackup) và server PostgreSQL.
+
+Dưới đây là cách khắc phục:
+
+
+---
+
+1. Hiểu Nguyên Nhân
+
+PostgreSQL server được cấu hình để yêu cầu SSL.
+
+Client (pg_basebackup) không sử dụng SSL khi kết nối, dẫn đến lỗi.
+
+
+
+---
+
+2. Cách Khắc Phục
+
+Cách 1: Bật Sử Dụng SSL cho pg_basebackup
+
+Thêm tùy chọn --sslmode=require vào lệnh pg_basebackup để bật SSL.
+
+
+Ví dụ:
+
+pg_basebackup -h <primary_host> -U replicator -D /var/lib/postgresql/data -Fp -Xs -P --sslmode=require
+
+Giải thích các tùy chọn SSL:
+
+require: Bắt buộc sử dụng SSL.
+
+verify-ca: Kiểm tra chứng chỉ SSL nhưng không yêu cầu chứng chỉ server phải khớp hostname.
+
+verify-full: Yêu cầu chứng chỉ server hợp lệ và khớp hostname.
+
+
+
+
+---
+
+Cách 2: Cấu Hình Server Không Yêu Cầu SSL (Tùy chọn, không khuyến nghị)
+
+Nếu bạn không muốn sử dụng SSL, có thể tắt yêu cầu SSL trên server:
+
+1. Mở tệp cấu hình pg_hba.conf trên server PostgreSQL:
+
+sudo nano /etc/postgresql/<version>/main/pg_hba.conf
+
+
+2. Tìm dòng yêu cầu replication và chỉnh sửa như sau:
+
+hostssl replication replicator 0.0.0.0/0 md5
+
+--> Thay hostssl thành host:
+
+host replication replicator 0.0.0.0/0 md5
+
+
+3. Reload PostgreSQL để áp dụng thay đổi:
+
+systemctl reload postgresql
+
+
+
+
+---
+
+Cách 3: Cài Đặt Chứng Chỉ SSL Hợp Lệ (Khuyến nghị)
+
+Nếu bạn muốn sử dụng SSL đúng cách, hãy cấu hình SSL trên server PostgreSQL:
+
+1. Tạo chứng chỉ SSL:
+
+mkdir /etc/postgresql/ssl
+openssl req -new -x509 -days 365 -nodes -out /etc/postgresql/ssl/server.crt -keyout /etc/postgresql/ssl/server.key
+chmod 600 /etc/postgresql/ssl/server.key
+
+
+2. Cấu hình PostgreSQL để sử dụng SSL: Mở tệp cấu hình postgresql.conf:
+
+sudo nano /etc/postgresql/<version>/main/postgresql.conf
+
+Thêm hoặc sửa các dòng sau:
+
+ssl = on
+ssl_cert_file = '/etc/postgresql/ssl/server.crt'
+ssl_key_file = '/etc/postgresql/ssl/server.key'
+
+
+3. Cấp quyền truy cập client: Trong pg_hba.conf, đảm bảo dòng replication yêu cầu SSL:
+
+hostssl replication replicator 0.0.0.0/0 md5
+
+
+4. Restart PostgreSQL:
+
+systemctl restart postgresql
+
+
+5. Kết nối lại với SSL:
+
+pg_basebackup -h <primary_host> -U replicator -D /var/lib/postgresql/data -Fp -Xs -P --sslmode=require
+
+
+
+
+---
+
+3. Kiểm Tra và Xác Nhận
+
+Kiểm tra log PostgreSQL trên server:
+
+tail -f /var/log/postgresql/postgresql-15-main.log
+
+Đảm bảo không có lỗi liên quan đến SSL hoặc replication.
+
+Kiểm tra backup trên Standby: Sau khi hoàn tất, xác nhận dữ liệu đã được sao chép đúng.
+
+
+
+---
+
+Nếu bạn vẫn gặp lỗi, vui lòng cung cấp thông báo chi tiết để tôi hỗ trợ thêm!
+
+
