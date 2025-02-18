@@ -1,0 +1,49 @@
+crictl không có lệnh trực tiếp để liệt kê các image không sử dụng (dangling images) trong Kubernetes, nhưng bạn có thể kết hợp một số lệnh để tìm các image không được sử dụng bởi bất kỳ container nào.
+
+Cách liệt kê tất cả các image không sử dụng trong Kubernetes:
+
+1. Liệt kê tất cả image trên node
+
+crictl images -q
+
+Lệnh này trả về danh sách tất cả các image ID trên node.
+
+
+2. Liệt kê tất cả các container đang chạy hoặc đã dừng
+
+crictl ps -a -q
+
+Lệnh này trả về danh sách tất cả container (bao gồm cả đang chạy và đã dừng).
+
+
+3. Liệt kê image đang được sử dụng bởi các container
+
+crictl ps -a --output json | jq -r '.containers[].imageRef' | awk -F'@' '{print $1}'
+
+Lệnh này lọc danh sách image đang được container sử dụng.
+
+
+4. So sánh và tìm image không sử dụng
+Bạn có thể dùng grep -vF để lọc ra các image không có trong danh sách đang sử dụng:
+
+comm -23 <(crictl images -q | sort) <(crictl ps -a --output json | jq -r '.containers[].imageRef' | awk -F'@' '{print $1}' | sort)
+
+Lệnh này liệt kê các image không còn container nào sử dụng.
+
+
+
+Xóa image không sử dụng (nếu cần)
+
+Sau khi xác định image không sử dụng, bạn có thể xóa chúng bằng:
+
+crictl rmi $(comm -23 <(crictl images -q | sort) <(crictl ps -a --output json | jq -r '.containers[].imageRef' | awk -F'@' '{print $1}' | sort))
+
+Lưu ý:
+
+Lệnh này áp dụng cho các node trong Kubernetes, bạn có thể cần thực hiện trên từng node nếu chạy nhiều node worker.
+
+Kiểm tra kỹ danh sách image trước khi xóa để tránh ảnh hưởng đến workload đang chạy.
+
+
+Bạn có cần hướng dẫn thêm về cách tự động hóa việc này không?
+
